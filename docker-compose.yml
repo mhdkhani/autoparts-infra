@@ -1,0 +1,98 @@
+# Base stack (production-style). No values live here: every setting comes
+# from ./.env — services load it with env_file, and ${VAR} below is read
+# from it too (a missing variable is an error, there are no defaults).
+# Dev: docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+
+x-common: &common
+  env_file: .env
+  restart: unless-stopped
+
+services:
+  backend:
+    <<: *common
+    image: ${REGISTRY:?}/backend:${BACKEND_TAG:?}
+    depends_on:
+      postgres:      { condition: service_healthy }
+      redis:         { condition: service_healthy }
+      kafka:         { condition: service_healthy }
+      elasticsearch: { condition: service_healthy }
+
+  frontend:
+    <<: *common
+    image: ${REGISTRY:?}/frontend:${FRONTEND_TAG:?}
+    depends_on: [backend]
+
+  nginx:
+    <<: *common
+    image: ${IMAGE_NGINX:?}
+    ports: ["${HOST_HTTP_PORT:?}:${NGINX_PORT:?}"]
+    volumes:
+      # the image runs envsubst on *.template → /etc/nginx/conf.d/
+      - ./nginx/templates:/etc/nginx/templates:ro
+    depends_on: [backend, frontend]
+
+  postgres:
+    <<: *common
+    image: ${IMAGE_POSTGRES:?}
+    volumes: [pg-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    <<: *common
+    image: ${IMAGE_REDIS:?}
+    # going through docker-entrypoint.sh keeps the drop to the redis user
+    command: ["sh", "-c", "exec docker-entrypoint.sh redis-server --port \"$$REDIS_PORT\" --appendonly yes --requirepass \"$$REDIS_PASSWORD\""]
+    volumes: [redis-data:/data]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -p \"$$REDIS_PORT\" -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # One-shot: a fresh named volume is root-owned, Kafka runs as BROKER_UID.
+  kafka-init:
+    env_file: .env
+    image: ${IMAGE_KAFKA:?}
+    user: root
+    command: ["sh", "-c", "chown -R \"$$BROKER_UID:$$BROKER_UID\" \"$$BROKER_DATA_DIR\""]
+    volumes:
+      - kafka-data:${BROKER_DATA_DIR:?}
+    restart: "no"
+
+  kafka:
+    <<: *common
+    image: ${IMAGE_KAFKA:?}   # KRaft mode (no Zookeeper); config = KAFKA_* in .env
+    volumes:
+      - kafka-data:${BROKER_DATA_DIR:?}
+    depends_on:
+      kafka-init: { condition: service_completed_successfully }
+    healthcheck:
+      # kafka-native has no CLI tools; check the broker port
+      test: ["CMD-SHELL", "nc -z localhost \"$$BROKER_PORT\""]
+      interval: 10s
+      timeout: 15s
+      retries: 10
+      start_period: 30s
+
+  elasticsearch:
+    <<: *common
+    image: ${IMAGE_ELASTICSEARCH:?}   # config = ES_SETTING_* in .env
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+    volumes: [es-data:/usr/share/elasticsearch/data]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs \"http://localhost:$$ES_SETTING_HTTP_PORT/_cluster/health?wait_for_status=yellow&timeout=5s\" || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+
+volumes:
+  pg-data:
+  redis-data:
+  kafka-data:
+  es-data:

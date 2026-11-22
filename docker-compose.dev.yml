@@ -1,0 +1,39 @@
+# Dev override: builds the apps from sibling repo checkouts (../backend, ../frontend)
+# with hot reload, and publishes ports for tools / apps running on the host.
+# No values here either — ports come from ./.env.
+services:
+  backend:
+    build:
+      context: ../backend
+      target: dev
+      network: host                # npm ci during build: bridge DNS doesn't resolve on this machine
+    volumes:
+      - ../backend:/app
+      - /app/node_modules          # keep the container's node_modules
+    ports:
+      - "${HOST_BACKEND_PORT:?}:${PORT:?}"
+      - "${HOST_DEBUG_PORT:?}:${DEBUG_PORT:?}"   # Node inspector
+
+  frontend:
+    build:
+      context: ../frontend
+      target: dev
+      network: host
+    volumes:
+      - ../frontend:/app
+      - /app/node_modules
+      - /app/.next
+    ports:
+      - "${HOST_FRONTEND_PORT:?}:${PORT:?}"
+
+  postgres:
+    ports: ["${HOST_POSTGRES_PORT:?}:${POSTGRES_PORT:?}"]
+
+  redis:
+    ports: ["${HOST_REDIS_PORT:?}:${REDIS_PORT:?}"]
+
+  kafka:
+    ports: ["${HOST_KAFKA_PORT:?}:${HOST_KAFKA_PORT:?}"]   # EXTERNAL listener
+
+  elasticsearch:
+    ports: ["${HOST_ES_PORT:?}:${ES_SETTING_HTTP_PORT:?}"]
