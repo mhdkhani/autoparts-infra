@@ -38,7 +38,7 @@ Values inside `.env` may reference each other, e.g. `BROKERS=${BROKER_HOST}:${BR
 | `ES_SETTING_*`, `ES_JAVA_OPTS` | elasticsearch — each `ES_SETTING_FOO_BAR` becomes `foo.bar` |
 | `NGINX_*`, `BACKEND_HOST`, `FRONTEND_HOST`, `PORT` | nginx templates (`nginx/templates/*.template`, rendered by envsubst) |
 | `BROKER_*`, `BROKERS` | kafka-init / healthcheck, backend |
-| `ELASTICSEARCH_*`, `PORT`, `DEBUG_PORT`, `API_INTERNAL_URL`, `NEXT_PUBLIC_*` | backend / frontend |
+| `NODE_ENV`, `BIND_HOST`, `PORT`, `DEBUG_PORT`, `ELASTICSEARCH_*`, `API_INTERNAL_URL`, `PUBLIC_API_URL` | backend / frontend |
 | `HOST_*`, `IMAGE_*`, `REGISTRY`, `*_TAG`, `COMPOSE_*` | compose (published ports, image names) |
 
 Don't name non-broker variables `KAFKA_*` — the Kafka container would treat them as broker
@@ -88,11 +88,11 @@ docker compose pull
 docker compose up -d
 ```
 
-Only nginx publishes a port. Before going live: enable Elasticsearch security, set real
+Only nginx publishes a port. On the server set `NODE_ENV=production` in `.env`. Before going live: enable Elasticsearch security, set real
 `POSTGRES_PASSWORD` / `REDIS_PASSWORD`, add TLS in nginx.
 
 ## Notes
-- `NEXT_PUBLIC_*` is inlined at frontend **build** time → the browser uses relative `/api`;
-  SSR uses `API_INTERNAL_URL=http://backend:3000`.
+- The app Dockerfiles contain no `ENV`/`ARG` either, and nothing is baked in at build time:
+  the browser gets `PUBLIC_API_URL` (`/api`) at runtime, SSR uses `API_INTERNAL_URL`.
 - Kafka: containers use `kafka:9092`, apps on the host use `localhost:29092`.
 - Kafka is pinned to 3.9.x: Kafka 4.x drops old protocol versions that KafkaJS still relies on.
