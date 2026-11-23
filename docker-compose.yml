@@ -11,7 +11,10 @@ services:
   backend:
     <<: *common
     image: ${REGISTRY:?}/backend:${BACKEND_TAG:?}
+    volumes:
+      - media-data:${MEDIA_DIR:?}    # uploaded files (logo, …); nginx serves them under MEDIA_URL
     depends_on:
+      media-init:    { condition: service_completed_successfully }
       postgres:      { condition: service_healthy }
       redis:         { condition: service_healthy }
       kafka:         { condition: service_healthy }
@@ -29,7 +32,18 @@ services:
     volumes:
       # the image runs envsubst on *.template → /etc/nginx/conf.d/
       - ./nginx/templates:/etc/nginx/templates:ro
+      - media-data:${MEDIA_DIR:?}:ro
     depends_on: [backend, frontend]
+
+  # One-shot: a fresh named volume is root-owned, the prod backend runs as MEDIA_UID (the image's node user).
+  media-init:
+    env_file: .env
+    image: ${IMAGE_NGINX:?}
+    user: root
+    entrypoint: ["sh", "-c", "chown -R \"$$MEDIA_UID:$$MEDIA_UID\" \"$$MEDIA_DIR\""]
+    volumes:
+      - media-data:${MEDIA_DIR:?}
+    restart: "no"
 
   postgres:
     <<: *common
@@ -96,3 +110,4 @@ volumes:
   redis-data:
   kafka-data:
   es-data:
+  media-data:

@@ -15,7 +15,9 @@ server {
     client_max_body_size ${NGINX_CLIENT_MAX_BODY_SIZE};
 
     proxy_http_version 1.1;
-    proxy_set_header Host              $host;
+    # $http_host keeps the port (localhost:8088) so absolute redirects built by the apps are right
+    proxy_set_header Host              $http_host;
+    proxy_set_header X-Forwarded-Host  $http_host;
     proxy_set_header X-Real-IP         $remote_addr;
     proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
@@ -25,6 +27,14 @@ server {
     # /api prefix is kept; NestJS uses app.setGlobalPrefix('api')
     location /api/ {
         proxy_pass http://backend;
+    }
+
+    # uploaded files (logo, …) straight from the media volume; written only by the backend
+    location ${MEDIA_URL}/ {
+        alias ${MEDIA_DIR}/;
+        add_header X-Content-Type-Options nosniff;
+        expires 30d;
+        try_files $uri =404;
     }
 
     location / {
